@@ -95,6 +95,6 @@ class WatchListenerService : BasePebbleListenerService() {
 
     /** The watch only knows a word's headline; take the full text from the feed when it is still there. */
     private suspend fun lookUp(word: String, date: String, meaning: String): Word =
-        runCatching { fetchWords() }.getOrNull()?.firstOrNull { it.word == word && it.date == date }
+        archivedWords(this).firstOrNull { it.word == word && it.date == date }
             ?: Word(word, date, meaning, "", meaning, "", "", "")
 }

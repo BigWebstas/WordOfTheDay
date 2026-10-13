@@ -44,15 +44,24 @@ private struct TodayView: View {
     }
 
     private func refresh() async {
+        let fetched: [Word]?
+        var failure = ""
         do {
-            let words = try await fetchWords()
-            load = .done(words)
-            if let latest = words.first { WordNotifier.markSeen(latest.word) }
-            if expanded == nil || !words.contains(where: { $0.id == expanded }) {
-                expanded = words.first?.id
-            }
+            fetched = try await fetchAndArchive()
         } catch {
-            load = .failed(error.localizedDescription)
+            fetched = nil
+            failure = error.localizedDescription
+        }
+        // Offline or feed down: the archive still has every word seen so far.
+        let words = WordArchive.all()
+        guard fetched != nil || !words.isEmpty else {
+            load = .failed(failure)
+            return
+        }
+        load = .done(words)
+        if let latest = fetched?.first { WordNotifier.markSeen(latest.word) }
+        if expanded == nil || !words.contains(where: { $0.id == expanded }) {
+            expanded = words.first?.id
         }
     }
 }

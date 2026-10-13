@@ -61,7 +61,7 @@ object WordNotifier {
 
 class WordWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result = try {
-        fetchWords().firstOrNull()?.let { WordNotifier.notifyIfNew(applicationContext, it) }
+        fetchAndArchive(applicationContext).firstOrNull()?.let { WordNotifier.notifyIfNew(applicationContext, it) }
         Result.success()
     } catch (e: Exception) {
         Result.retry()

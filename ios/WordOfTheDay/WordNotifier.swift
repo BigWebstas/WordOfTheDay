@@ -23,7 +23,7 @@ enum WordNotifier {
     }
 
     static func notifyIfNew() async {
-        guard let word = try? await fetchWords().first,
+        guard let word = try? await fetchAndArchive().first,
               UserDefaults.standard.string(forKey: lastSeenKey) != word.word else { return }
         let content = UNMutableNotificationContent()
         content.title = "Word of the Day: \(word.word)"

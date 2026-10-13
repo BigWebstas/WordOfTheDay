@@ -83,14 +83,18 @@ private fun App() {
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
         load = Load.Loading
-        load = runCatching { fetchWords() }.fold(
-            onSuccess = { words ->
-                words.firstOrNull()?.let { WordNotifier.markSeen(context, it.word) }
-                saved.refresh(words)
-                Load.Done(words)
-            },
-            onFailure = { Load.Failed(it.message ?: "Could not load the feed") },
-        )
+        val fetched = runCatching { fetchAndArchive(context) }
+        // Offline or feed down: the archive still has every word seen so far.
+        val words = archivedWords(context)
+        load = if (fetched.isSuccess || words.isNotEmpty()) {
+            fetched.getOrNull()?.let { fresh ->
+                fresh.firstOrNull()?.let { WordNotifier.markSeen(context, it.word) }
+                saved.refresh(fresh)
+            }
+            Load.Done(words)
+        } else {
+            Load.Failed(fetched.exceptionOrNull()?.message ?: "Could not load the feed")
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
