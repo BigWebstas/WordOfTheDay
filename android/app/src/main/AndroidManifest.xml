@@ -8,7 +8,7 @@
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Word of the Day"
-        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+        android:theme="@style/Theme.WordOfTheDay">
         <activity
             android:name=".MainActivity"
             android:exported="true">
