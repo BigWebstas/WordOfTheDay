@@ -1,0 +1,57 @@
+{
+  "name": "word-of-the-day",
+  "author": "MakeAwesomeHappen",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {},
+  "pebble": {
+    "displayName": "Word of the Day",
+    "uuid": "5b369bd0-0487-4020-a10e-7034d3da8891",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "aplite",
+      "basalt",
+      "chalk",
+      "diorite",
+      "emery",
+      "flint",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "messageKeys": {
+      "WORD": 1,
+      "DATE": 2,
+      "PRONUNCIATION": 3,
+      "MEANING": 4,
+      "DETAILS": 5,
+      "RATING": 6,
+      "SYNC": 7
+    },
+    "resources": {
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "MENU_ICON",
+          "file": "images/menu_icon.png",
+          "menuIcon": true
+        }
+      ]
+    },
+    "companionApp": {
+      "android": {
+        "url": "https://github.com/pebble-dev/PebbleKitAndroid2",
+        "apps": [
+          {
+            "package": "com.example.wordoftheday"
+          }
+        ]
+      }
+    }
+  }
+}
