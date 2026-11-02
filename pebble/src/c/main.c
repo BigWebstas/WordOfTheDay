@@ -30,6 +30,11 @@ static char s_word[64] = "Word of the Day";
 static char s_date[DATE_LEN];
 static char s_meaning[MEANING_LEN];
 static char s_body[900] = "Loading...\n\nSELECT rates, hold SELECT for saved words.";
+// The body is rebuilt from these when a word or the streak arrives.
+static char s_pron[40];
+static char s_full_meaning[270];
+static char s_details[490];
+static int s_streak;
 static char s_rating_text[24];
 
 static Saved s_saved[MAX_SAVED];  // newest first
@@ -77,6 +82,19 @@ static void prv_load(void) {
   }
 }
 
+// Highest rating first; equal ratings keep their order, so the newest stays on top.
+static void prv_sort(void) {
+  for (int i = 1; i < s_saved_count; i++) {
+    const Saved moving = s_saved[i];
+    int j = i - 1;
+    while (j >= 0 && s_saved[j].rating < moving.rating) {
+      s_saved[j + 1] = s_saved[j];
+      j--;
+    }
+    s_saved[j + 1] = moving;
+  }
+}
+
 // Rating 0 removes the word; a new word goes to the front, dropping the oldest when full.
 static void prv_set(const Saved *e) {
   const int i = prv_find(e->word, e->date);
@@ -95,6 +113,7 @@ static void prv_set(const Saved *e) {
     s_saved[0] = *e;
     s_saved_count++;
   }
+  prv_sort();
   prv_persist();
 }
 
@@ -155,6 +174,11 @@ static void prv_outbox_failed(DictionaryIterator *iter, AppMessageResult reason,
 }
 
 static void prv_rate(const Saved *e) {
+  if (e->rating == 5) {
+    vibes_double_pulse();
+  } else {
+    vibes_short_pulse();
+  }
   prv_set(e);
   prv_out_enqueue(e);
   prv_update_rating_text();
@@ -184,6 +208,14 @@ static void prv_layout(void) {
   prv_update_rating_text();
 }
 
+static void prv_rebuild_body(void) {
+  int used = 0;
+  if (s_streak >= 2) {
+    used = snprintf(s_body, sizeof(s_body), "%d day streak\n\n", s_streak);
+  }
+  snprintf(s_body + used, sizeof(s_body) - used, "%s\n\n%s\n\n%s", s_pron, s_full_meaning, s_details);
+}
+
 static void prv_show_word(DictionaryIterator *iter) {
   Tuple *word = dict_find(iter, MESSAGE_KEY_WORD);
   Tuple *date = dict_find(iter, MESSAGE_KEY_DATE);
@@ -196,8 +228,10 @@ static void prv_show_word(DictionaryIterator *iter) {
   snprintf(s_word, sizeof(s_word), "%s", word->value->cstring);
   snprintf(s_date, sizeof(s_date), "%s", date->value->cstring);
   snprintf(s_meaning, sizeof(s_meaning), "%s", meaning->value->cstring);
-  snprintf(s_body, sizeof(s_body), "%s\n\n%s\n\n%s", pronunciation->value->cstring,
-           meaning->value->cstring, details->value->cstring);
+  snprintf(s_pron, sizeof(s_pron), "%s", pronunciation->value->cstring);
+  snprintf(s_full_meaning, sizeof(s_full_meaning), "%s", meaning->value->cstring);
+  snprintf(s_details, sizeof(s_details), "%s", details->value->cstring);
+  prv_rebuild_body();
   prv_layout();
 }
 
@@ -240,6 +274,11 @@ static void prv_window_load(Window *window) {
   s_body_layer = text_layer_create(GRectZero);
   text_layer_set_font(s_body_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24));
 
+#ifdef PBL_COLOR
+  text_layer_set_text_color(s_rating_layer, GColorOrange);
+  text_layer_set_text_color(s_word_layer, GColorCobaltBlue);
+#endif
+
   scroll_layer_add_child(s_scroll, text_layer_get_layer(s_rating_layer));
   scroll_layer_add_child(s_scroll, text_layer_get_layer(s_word_layer));
   scroll_layer_add_child(s_scroll, text_layer_get_layer(s_body_layer));
@@ -280,9 +319,12 @@ static void prv_menu_select(MenuLayer *menu, MenuIndex *index, void *context) {
   Saved e = s_saved[index->row];
   e.rating = (e.rating + 1) % 6;
   prv_rate(&e);
-  const int last = s_saved_count ? s_saved_count - 1 : 0;
-  menu_layer_set_selected_index(menu, (MenuIndex) { 0, index->row < last ? index->row : last },
-                                MenuRowAlignCenter, false);
+  // Keep the highlight on the word that was rated, which may have moved; if it was removed, stay near its row.
+  int row = prv_find(e.word, e.date);
+  if (row < 0) {
+    row = index->row < s_saved_count ? index->row : s_saved_count - 1;
+  }
+  menu_layer_set_selected_index(menu, (MenuIndex) { 0, row < 0 ? 0 : row }, MenuRowAlignCenter, false);
 }
 
 static void prv_saved_window_load(Window *window) {
@@ -293,6 +335,9 @@ static void prv_saved_window_load(Window *window) {
     .draw_row = prv_menu_draw_row,
     .select_click = prv_menu_select,
   });
+#ifdef PBL_COLOR
+  menu_layer_set_highlight_colors(s_menu, GColorCobaltBlue, GColorWhite);
+#endif
   menu_layer_set_click_config_onto_window(s_menu, window);
   layer_add_child(root, menu_layer_get_layer(s_menu));
 }
@@ -320,8 +365,15 @@ static void prv_inbox_received(DictionaryIterator *iter, void *context) {
   Tuple *word = dict_find(iter, MESSAGE_KEY_WORD);
   Tuple *date = dict_find(iter, MESSAGE_KEY_DATE);
   Tuple *meaning = dict_find(iter, MESSAGE_KEY_MEANING);
+  Tuple *streak = dict_find(iter, MESSAGE_KEY_STREAK);
 
-  if (dict_find(iter, MESSAGE_KEY_SYNC)) {
+  if (streak) {
+    s_streak = streak->value->uint8;
+    if (s_date[0]) {  // a word is already showing: redraw with the streak
+      prv_rebuild_body();
+      prv_layout();
+    }
+  } else if (dict_find(iter, MESSAGE_KEY_SYNC)) {
     // The phone wants everything we have. Snapshot now so its own updates don't change what we send.
     for (int i = 0; i < s_saved_count; i++) {
       prv_out_enqueue(&s_saved[i]);

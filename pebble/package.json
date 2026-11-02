@@ -31,7 +31,8 @@
       "MEANING": 4,
       "DETAILS": 5,
       "RATING": 6,
-      "SYNC": 7
+      "SYNC": 7,
+      "STREAK": 8
     },
     "resources": {
       "media": [

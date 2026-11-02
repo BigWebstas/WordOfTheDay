@@ -20,6 +20,7 @@ private const val KEY_DATE = 2u
 private const val KEY_MEANING = 4u
 private const val KEY_RATING = 6u
 private const val KEY_SYNC = 7u
+private const val KEY_STREAK = 8u
 
 private const val WATCH_MAX_SAVED = 24
 private const val WATCH_MEANING_CHARS = 90
@@ -39,6 +40,7 @@ object WatchSync {
     /** Asks the watch for its list, then sends ours. */
     fun resync(context: Context) {
         scope.launch {
+            send(context, mapOf(KEY_STREAK to PebbleDictionaryItem.UInt8(Streak.current(context).coerceAtMost(255).toUByte())))
             send(context, mapOf(KEY_SYNC to PebbleDictionaryItem.UInt8(1u)))
             SavedWords.get(context).items
                 .sortedByDescending { it.rating }
