@@ -1,86 +1,150 @@
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+
 package com.example.wordoftheday
 
 import android.Manifest
-import android.content.Context
-import android.content.Intent
+import android.app.Activity
 import android.os.Build
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         WordNotifier.schedule(this)
         if (Build.VERSION.SDK_INT >= 33) {
             registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
                 .launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        setContent {
-            val dark = isSystemInDarkTheme()
-            val colors = when {
-                Build.VERSION.SDK_INT >= 31 ->
-                    if (dark) dynamicDarkColorScheme(this) else dynamicLightColorScheme(this)
-                dark -> darkColorScheme()
-                else -> lightColorScheme()
-            }
-            MaterialTheme(colorScheme = colors) {
-                Surface(Modifier.fillMaxSize()) {
-                    Column(Modifier.safeDrawingPadding()) { App() }
-                }
-            }
+        requestHighestRefreshRate()
+        setContent { AppTheme { Surface(Modifier.fillMaxSize()) { App() } } }
+    }
+}
+
+/** Material colours that follow the chosen theme and, on Android 12+, the wallpaper. */
+@Composable
+fun AppTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val dark = when (AppSettings.get(context).themeMode) {
+        ThemeMode.System -> isSystemInDarkTheme()
+        ThemeMode.Light -> false
+        ThemeMode.Dark -> true
+    }
+    // The system bar icons follow the phone's theme unless told otherwise.
+    val view = LocalView.current
+    SideEffect {
+        val window = (context as? Activity)?.window ?: return@SideEffect
+        WindowCompat.getInsetsController(window, view).apply {
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
         }
     }
+    val colors = when {
+        Build.VERSION.SDK_INT >= 31 ->
+            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        dark -> darkColorScheme()
+        else -> lightColorScheme()
+    }
+    MaterialTheme(colorScheme = colors, content = content)
+}
+
+// Many phones run apps at 60 Hz unless asked; pick the fastest mode at the current resolution.
+private fun ComponentActivity.requestHighestRefreshRate() {
+    if (Build.VERSION.SDK_INT < 30) return
+    val current = display?.mode ?: return
+    val fastest = display!!.supportedModes
+        .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+        .maxByOrNull { it.refreshRate } ?: return
+    window.attributes = window.attributes.apply { preferredDisplayModeId = fastest.modeId }
 }
 
 private sealed interface Load {
     data object Loading : Load
-    data class Done(val words: List<Word>) : Load
+    data class Done(val words: List<Word>, val refreshing: Boolean) : Load
     data class Failed(val message: String) : Load
 }
 
@@ -88,13 +152,23 @@ private sealed interface Load {
 private fun App() {
     val context = LocalContext.current
     val saved = remember { SavedWords.get(context) }
+    val learning = remember { Learning.get(context) }
+    val streak = remember { Streak.touch(context) }
+    val snackbar = remember { SnackbarHostState() }
+    val buzz = rememberBuzz()
+    val speak = rememberSpeaker()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    var detail by remember { mutableStateOf<Word?>(null) }
+    val todayList = rememberListMemory()
+    val ratingList = rememberListMemory()
 
     // Loaded here so switching tabs does not refetch the feed.
     var load by remember { mutableStateOf<Load>(Load.Loading) }
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
-        load = Load.Loading
+        // Show what the archive already holds straight away; the fetch only tops it up.
+        val shown = (load as? Load.Done)?.words ?: archivedWords(context).takeIf { it.isNotEmpty() }
+        load = if (shown != null) Load.Done(shown, refreshing = true) else Load.Loading
         val fetched = runCatching { fetchAndArchive(context) }
         // Offline or feed down: the archive still has every word seen so far.
         val words = archivedWords(context)
@@ -103,103 +177,66 @@ private fun App() {
                 fresh.firstOrNull()?.let { WordNotifier.markSeen(context, it.word) }
                 saved.refresh(fresh)
             }
-            Load.Done(words)
+            Load.Done(words, refreshing = false)
         } else {
             Load.Failed(fetched.exceptionOrNull()?.message ?: "Could not load the feed")
         }
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Box(Modifier.weight(1f)) {
-            if (tab == 0) TodayScreen(load, saved) { attempt++ } else SavedScreen(saved)
-        }
-        NavigationBar {
-            NavigationBarItem(selected = tab == 0, onClick = { tab = 0 }, icon = { Text("☀") }, label = { Text("Today") })
-            NavigationBarItem(selected = tab == 1, onClick = { tab = 1 }, icon = { Text("★") }, label = { Text("Saved") })
-        }
-    }
-}
-
-@Composable
-private fun TodayScreen(load: Load, saved: SavedWords, onRetry: () -> Unit) {
-    when (load) {
-        Load.Loading -> Centered { CircularProgressIndicator() }
-        is Load.Failed -> Centered {
-            Text(load.message)
-            Button(onClick = onRetry, Modifier.padding(top = 12.dp)) { Text("Retry") }
-        }
-        is Load.Done -> WordList(load.words.map { it to saved.rating(it) }, saved, expandFirst = true)
-    }
-}
-
-@Composable
-private fun SavedScreen(saved: SavedWords) {
-    val context = LocalContext.current
-    val export = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json"),
-    ) { uri ->
-        if (uri != null) toast(
-            context,
-            runCatching {
-                context.contentResolver.openOutputStream(uri)!!.use { it.write(saved.backupJson().toByteArray()) }
-            }.fold({ "Backup saved" }, { "Backup failed: ${it.message}" }),
-        )
-    }
-    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) toast(
-            context,
-            runCatching {
-                saved.merge(context.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() })
-            }.fold({ "Imported $it words" }, { "Import failed: ${it.message}" }),
-        )
+    fun select(index: Int) {
+        if (tab != index) buzz(HapticFeedbackType.TextHandleMove)
+        tab = index
     }
 
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.padding(16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { export.launch("word-of-the-day-backup.json") }) { Text("Back up") }
-            OutlinedButton(onClick = { import.launch(arrayOf("*/*")) }) { Text("Restore") }
-        }
-        if (saved.items.isEmpty()) {
-            Centered { Text("Rate a word to save it here.") }
-        } else {
-            WordList(saved.items.sortedByDescending { it.rating }.map { it.word to it.rating }, saved, expandFirst = false)
-        }
-    }
-}
-
-@Composable
-private fun Centered(content: @Composable () -> Unit) {
-    Column(
-        Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) { content() }
-}
-
-@Composable
-private fun WordList(words: List<Pair<Word, Int>>, saved: SavedWords, expandFirst: Boolean) {
-    val context = LocalContext.current
-    var expanded by remember { mutableStateOf(if (expandFirst) words.firstOrNull()?.first?.key else null) }
-    LazyColumn(
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        items(words, key = { it.first.key }) { (word, rating) ->
-            Card(Modifier.fillMaxWidth().clickable { expanded = if (expanded == word.key) null else word.key }) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(word.date, style = MaterialTheme.typography.labelMedium)
-                    Text(word.word, style = MaterialTheme.typography.headlineMedium)
-                    Stars(rating) { saved.rate(word, it) }
-                    Text(word.shortDefinition, Modifier.padding(top = 4.dp))
-                    if (expanded == word.key) {
-                        Text(word.pronunciation, Modifier.padding(top = 12.dp))
-                        Section("Meaning", word.meaning)
-                        Section("In context", word.context)
-                        Section("Example", word.example)
-                        Section("Did you know?", word.didYouKnow)
-                        Row(Modifier.padding(top = 8.dp)) {
-                            TextButton(onClick = { share(context, word) }) { Text("Share") }
-                            TextButton(onClick = { shareMarkdown(context, word, rating) }) { Text("Share as Markdown") }
+    SharedTransitionLayout {
+        val sharedScope = this
+        CompositionLocalProvider(LocalSharedScope provides sharedScope, LocalSpeak provides speak) {
+            AnimatedContent(detail, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "detail") { open ->
+                CompositionLocalProvider(LocalVisibilityScope provides this) {
+                    if (open != null) {
+                        DetailScreen(open, saved, learning) { detail = null }
+                    } else Scaffold(
+                        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                        snackbarHost = { SnackbarHost(snackbar) },
+                        bottomBar = {
+                            NavigationBar {
+                                NavigationBarItem(
+                                    selected = tab == 0, onClick = { select(0) },
+                                    icon = { NavIcon(Icons.Filled.Home, tab == 0, spin = false) }, label = { Text("Today") },
+                                )
+                                NavigationBarItem(
+                                    selected = tab == 1, onClick = { select(1) },
+                                    icon = { NavIcon(Icons.Filled.Star, tab == 1, spin = true) }, label = { Text("Rating") },
+                                )
+                                NavigationBarItem(
+                                    selected = tab == 2, onClick = { select(2) },
+                                    icon = { NavIcon(Icons.Filled.CheckCircle, tab == 2, spin = false) }, label = { Text("Quiz") },
+                                )
+                                NavigationBarItem(
+                                    selected = tab == 3, onClick = { select(3) },
+                                    icon = { NavIcon(Icons.Filled.Settings, tab == 3, spin = true) }, label = { Text("Settings") },
+                                )
+                            }
+                        },
+                    ) { padding ->
+                        Box(Modifier.padding(padding)) {
+                            AnimatedContent(
+                                tab,
+                                transitionSpec = {
+                                    val dir = if (targetState > initialState) 1 else -1
+                                    (slideInHorizontally { it / 4 * dir } + fadeIn()) togetherWith
+                                        (slideOutHorizontally { -it / 4 * dir } + fadeOut())
+                                },
+                                label = "tab",
+                            ) { current ->
+                                val open = { word: Word -> detail = word }
+                                when (current) {
+                                    0 -> TodayScreen(load, saved, learning, streak, todayList, open) { attempt++ }
+                                    1 -> RatingScreen(saved, learning, snackbar, ratingList, open)
+                                    2 -> QuizScreen(saved, learning, (load as? Load.Done)?.words.orEmpty())
+                                    else -> SettingsScreen(saved, learning, snackbar)
+                                }
+                            }
                         }
                     }
                 }
@@ -208,38 +245,160 @@ private fun WordList(words: List<Pair<Word, Int>>, saved: SavedWords, expandFirs
     }
 }
 
+/** Grows with a bounce when selected; some icons also turn. */
 @Composable
-private fun Stars(rating: Int, onRate: (Int) -> Unit) {
-    Row {
-        for (star in 1..5) {
-            Text(
-                if (star <= rating) "★" else "☆",
+private fun NavIcon(icon: ImageVector, selected: Boolean, spin: Boolean) {
+    val t by animateFloatAsState(
+        if (selected) 1f else 0f,
+        spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow),
+        label = "navIcon",
+    )
+    Icon(
+        icon,
+        contentDescription = null,
+        Modifier.graphicsLayer {
+            scaleX = 1f + 0.25f * t
+            scaleY = 1f + 0.25f * t
+            if (spin) rotationZ = 72f * t
+        },
+    )
+}
+
+@Composable
+internal fun statusBarHeight(): Dp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+@Composable
+private fun TodayScreen(
+    load: Load,
+    saved: SavedWords,
+    learning: Learning,
+    streak: Int,
+    memory: ListMemory,
+    onOpen: (Word) -> Unit,
+    onRefresh: () -> Unit,
+) {
+    // Keyed by kind, so a refresh updates the list in place instead of fading it out and back in.
+    AnimatedContent(
+        load,
+        contentKey = { it::class },
+        transitionSpec = { fadeIn() togetherWith fadeOut() },
+        label = "load",
+    ) { state ->
+        when (state) {
+            Load.Loading -> SkeletonList()
+            is Load.Failed -> Centered {
+                Text(state.message)
+                Button(onClick = onRefresh, Modifier.padding(top = 12.dp)) { Text("Retry") }
+            }
+            is Load.Done -> PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh) {
+                WordList(
+                    state.words.map { it to saved.rating(it) },
+                    saved,
+                    learning,
+                    hero = true,
+                    topPadding = statusBarHeight() + 16.dp,
+                    memory = memory,
+                    onOpen = onOpen,
+                    header = if (streak >= 2) {
+                        { AssistChip(onClick = {}, label = { Text("🔥 $streak day streak") }) }
+                    } else null,
+                )
+            }
+        }
+    }
+}
+
+/** Pulsing placeholder cards shown while the very first load has nothing to display. */
+@Composable
+private fun SkeletonList() {
+    val pulse by rememberInfiniteTransition(label = "skeleton").animateFloat(
+        0.25f, 0.6f, infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "pulse",
+    )
+    Column(
+        Modifier.padding(start = 16.dp, end = 16.dp, top = statusBarHeight() + 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        repeat(4) { index ->
+            Box(
                 Modifier
-                    .semantics { contentDescription = "Rate $star stars" }
-                    .clickable { onRate(star) }
-                    .padding(end = 8.dp, top = 4.dp, bottom = 4.dp),
-                fontSize = 28.sp,
+                    .fillMaxWidth()
+                    .height(if (index == 0) 170.dp else 110.dp)
+                    .graphicsLayer { alpha = pulse }
+                    .clip(CardDefaults.shape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             )
         }
     }
 }
 
 @Composable
-private fun Section(label: String, text: String) {
-    if (text.isEmpty()) return
-    Text(label, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.labelLarge)
-    Text(text)
+private fun RatingScreen(
+    saved: SavedWords,
+    learning: Learning,
+    snackbar: SnackbarHostState,
+    memory: ListMemory,
+    onOpen: (Word) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var query by rememberSaveable { mutableStateOf("") }
+    var topRated by rememberSaveable { mutableStateOf(true) }
+    val shown = remember(saved.items, query, topRated) {
+        saved.items
+            .filter { query.isBlank() || it.word.word.contains(query, true) || it.word.shortDefinition.contains(query, true) }
+            .let { list -> if (topRated) list.sortedByDescending { it.rating } else list }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = statusBarHeight() + 12.dp)) {
+            OutlinedTextField(
+                query,
+                { query = it },
+                Modifier.fillMaxWidth(),
+                placeholder = { Text("Search rated words") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = if (query.isNotEmpty()) {
+                    { IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, "Clear search") } }
+                } else null,
+                singleLine = true,
+            )
+            androidx.compose.foundation.layout.Row(
+                Modifier.padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilterChip(topRated, { topRated = true }, { Text("Top rated") })
+                FilterChip(!topRated, { topRated = false }, { Text("Newest") })
+            }
+        }
+        when {
+            saved.items.isEmpty() -> Centered { Text("Rate a word and it shows up here.") }
+            shown.isEmpty() -> Centered { Text("No words match.") }
+            else -> WordList(
+                shown.map { it.word to it.rating },
+                saved,
+                learning,
+                hero = false,
+                topPadding = 12.dp,
+                memory = memory,
+                onOpen = onOpen,
+                onDismiss = { word, rating ->
+                    // Rating a word with its own rating removes it; rating it again puts it back.
+                    saved.rate(word, rating)
+                    scope.launch {
+                        snackbar.currentSnackbarData?.dismiss()
+                        val result = snackbar.showSnackbar("Removed ${word.word}", actionLabel = "Undo")
+                        if (result == SnackbarResult.ActionPerformed) saved.rate(word, rating)
+                    }
+                },
+            )
+        }
+    }
 }
 
-private fun share(context: Context, word: Word) {
-    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, word.shareText)
-    context.startActivity(Intent.createChooser(send, null))
+@Composable
+internal fun Centered(content: @Composable () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) { content() }
 }
-
-private fun shareMarkdown(context: Context, word: Word, rating: Int) {
-    val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, word.markdown(rating))
-    context.startActivity(Intent.createChooser(send, null))
-}
-
-private fun toast(context: Context, message: String) =
-    Toast.makeText(context, message, Toast.LENGTH_LONG).show()

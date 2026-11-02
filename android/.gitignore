@@ -2,3 +2,8 @@
 build/
 local.properties
 .kotlin/
+
+# Release signing secrets
+keystore.properties
+*.jks
+*.keystore

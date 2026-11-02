@@ -1,6 +1,7 @@
 package com.example.wordoftheday
 
 import android.content.Context
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -19,7 +20,10 @@ class SavedWords private constructor(private val appContext: Context) {
     var items by mutableStateOf(parse(prefs.getString(KEY, null) ?: "[]"))
         private set
 
-    fun rating(word: Word): Int = items.firstOrNull { it.word.key == word.key }?.rating ?: 0
+    // Looked up once per card per redraw, so keep it a map rather than scanning the list.
+    private val ratings by derivedStateOf { items.associate { it.word.key to it.rating } }
+
+    fun rating(word: Word): Int = ratings[word.key] ?: 0
 
     /** A rating from the user: saved, then sent to the watch. */
     fun rate(word: Word, stars: Int) {

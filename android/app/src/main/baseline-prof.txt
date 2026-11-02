@@ -1,0 +1,3 @@
+HSPLcom/example/wordoftheday/**->**(**)**
+HSPLandroidx/compose/**->**(**)**
+HSPLandroidx/activity/compose/**->**(**)**

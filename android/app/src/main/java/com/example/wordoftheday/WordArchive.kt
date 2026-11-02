@@ -88,7 +88,10 @@ class WordArchive private constructor(context: Context) :
 /** Fetches the feed and archives it. Returns the feed's words, newest first. */
 suspend fun fetchAndArchive(context: Context): List<Word> {
     val fresh = fetchWords()
-    withContext(Dispatchers.IO) { WordArchive.get(context).store(fresh) }
+    withContext(Dispatchers.IO) {
+        WordArchive.get(context).store(fresh)
+        WordWidget.refresh(context)
+    }
     return fresh
 }
 
