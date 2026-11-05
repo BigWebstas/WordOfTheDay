@@ -1,0 +1,1 @@
+The Install on Pebble button now opens the watchapp straight in your Pebble app.
