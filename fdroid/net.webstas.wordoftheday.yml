@@ -5,6 +5,9 @@ License: GPL-3.0-or-later
 AuthorName: BigWebstas
 SourceCode: https://github.com/BigWebstas/WordOfTheDay
 IssueTracker: https://github.com/BigWebstas/WordOfTheDay/issues
+Changelog: https://github.com/BigWebstas/WordOfTheDay/releases
+
+AutoName: Word of the Day
 
 AntiFeatures:
   NonFreeNet:
@@ -16,7 +19,8 @@ Repo: https://github.com/BigWebstas/WordOfTheDay.git
 Builds:
   - versionName: 1.0.1
     versionCode: 2
-    commit: v1.0.1
+    # Full hash of the v1.0.1 commit; reviewers don't accept tag names. `git rev-parse v1.0.1^{commit}`.
+    commit: c93279f3755ff123509b662841ed1c7433680e74
     subdir: android/app
     gradle:
       - yes
