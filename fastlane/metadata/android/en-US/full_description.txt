@@ -1,0 +1,21 @@
+Merriam-Webster's Word of the Day, with every word archived on your device so the whole history stays available offline.
+
+<b>Today</b>
+The newest word as a highlighted card above the archive, with a day streak. Pull to refresh. Tap a card for the full entry: meaning, usage, examples and "Did you know?".
+
+<b>Rating</b>
+Rate words from one to five stars, search them, and sort by top rated or newest. Swipe a word away to remove its rating, with undo.
+
+<b>Quiz</b>
+"Which word means…" questions, weighted towards the words you miss. Mark words as learned to stop seeing them.
+
+<b>More</b>
+• Home-screen widget with its own theme, size, opacity and tap action
+• Daily reminder at a time you choose
+• Share a word as text, Markdown or an image card
+• Pronunciation audio on every card
+• Follows the system dark or light theme, or override it
+• Backup and restore of your ratings
+• Optional Pebble watchapp: rate words from your wrist, with ratings synced to the phone
+
+Words come from the public Merriam-Webster RSS feed. The app has no accounts, ads or tracking.

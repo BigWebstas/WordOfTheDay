@@ -68,3 +68,8 @@ Time 2 (emery).
 - **iOS**: `cd ios && xcodegen && open WordOfTheDay.xcodeproj`
 - **Pebble**: `cd pebble && pebble build && pebble install --emulator basalt`
   (see [pebble/README.md](pebble/README.md))
+
+## License
+
+[GPL-3.0-or-later](LICENSE). Word of the Day entries come from the public
+Merriam-Webster RSS feed and belong to Merriam-Webster.

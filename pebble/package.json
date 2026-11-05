@@ -49,7 +49,7 @@
         "url": "https://github.com/pebble-dev/PebbleKitAndroid2",
         "apps": [
           {
-            "package": "com.example.wordoftheday"
+            "package": "net.webstas.wordoftheday"
           }
         ]
       }

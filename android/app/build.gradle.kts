@@ -11,7 +11,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.example.wordoftheday"
+        applicationId = "net.webstas.wordoftheday"
         minSdk = 26
         targetSdk = 34
         versionCode = 1
@@ -46,6 +46,12 @@ android {
     }
 
     buildFeatures { compose = true }
+
+    // F-Droid rejects the signed dependency blob Gradle adds by default.
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17) } }
