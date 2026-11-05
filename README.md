@@ -42,8 +42,8 @@ device, so the full history stays available offline.
 </p>
 
 Stars pop as you rate, with confetti at five. A card expands into its detail
-screen and shrinks back. Swiping a rated word away collapses its row and
-offers undo.
+screen and shrinks back. Swiping a rated word away collapses its row, and
+Undo slides it back in.
 
 ## Pebble
 
