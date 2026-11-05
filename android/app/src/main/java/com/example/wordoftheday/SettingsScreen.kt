@@ -65,6 +65,7 @@ internal fun SettingsScreen(saved: SavedWords, learning: Learning, snackbar: Sna
     }
 
     var picking by remember { mutableStateOf(false) }
+    var installing by remember { mutableStateOf(false) }
     val reminder = settings.reminderMinutes
 
     Column(
@@ -106,6 +107,20 @@ internal fun SettingsScreen(saved: SavedWords, learning: Learning, snackbar: Sna
             OutlinedButton(onClick = { export.launch("word-of-the-day-backup.json") }) { Text("Back up") }
             OutlinedButton(onClick = { import.launch(arrayOf("*/*")) }) { Text("Restore") }
         }
+
+        Text("Pebble", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge)
+        Text("Rate words from your watch. This downloads the watchapp and opens it in your Pebble app.")
+        OutlinedButton(
+            enabled = !installing,
+            onClick = {
+                installing = true
+                scope.launch {
+                    runCatching { installWatchapp(context) }
+                        .onFailure { say("Couldn't install the watchapp: ${it.message}") }
+                    installing = false
+                }
+            },
+        ) { Text(if (installing) "Downloading…" else "Install on Pebble") }
     }
 
     if (picking) {
