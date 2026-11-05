@@ -76,6 +76,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -347,6 +349,7 @@ private fun RatingScreen(
             .filter { query.isBlank() || it.word.word.contains(query, true) || it.word.shortDefinition.contains(query, true) }
             .let { list -> if (topRated) list.sortedByDescending { it.rating } else list }
     }
+    val currentShown by rememberUpdatedState(shown)
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(start = 16.dp, end = 16.dp, top = statusBarHeight() + 12.dp)) {
@@ -386,7 +389,13 @@ private fun RatingScreen(
                     scope.launch {
                         snackbar.currentSnackbarData?.dismiss()
                         val result = snackbar.showSnackbar("Removed ${word.word}", actionLabel = "Undo")
-                        if (result == SnackbarResult.ActionPerformed) saved.rate(word, rating)
+                        if (result == SnackbarResult.ActionPerformed) {
+                            saved.rate(word, rating)
+                            // The list keeps the top card in place, so a word put back above it would be out of sight.
+                            withFrameNanos { }
+                            val index = currentShown.indexOfFirst { it.word.key == word.key }
+                            if (index in 0 until memory.state.firstVisibleItemIndex) memory.state.animateScrollToItem(index)
+                        }
                     }
                 },
             )
