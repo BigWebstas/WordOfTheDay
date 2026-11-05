@@ -49,6 +49,7 @@ Undo slides it back in.
 
 <p>
   <img src="screenshots/pebble-words.png" width="200" alt="Pebble word screen">
+  <img src="screenshots/pebble-rated.png" width="200" alt="Pebble word screen with a rating">
   <img src="screenshots/pebble-saved.png" width="200" alt="Pebble saved words">
 </p>
 
