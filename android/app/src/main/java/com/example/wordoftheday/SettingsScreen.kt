@@ -1,5 +1,9 @@
 package com.example.wordoftheday
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.provider.DocumentsContract
 import android.text.format.DateFormat
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,7 +40,12 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun SettingsScreen(saved: SavedWords, learning: Learning, snackbar: SnackbarHostState) {
+internal fun SettingsScreen(
+    saved: SavedWords,
+    learning: Learning,
+    snackbar: SnackbarHostState,
+    onRestored: () -> Unit = {},
+) {
     val context = LocalContext.current
     val settings = AppSettings.get(context)
     val scope = rememberCoroutineScope()
@@ -59,14 +68,31 @@ internal fun SettingsScreen(saved: SavedWords, learning: Learning, snackbar: Sna
     val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) say(
             runCatching {
-                saved.merge(context.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() })
+                val count = saved.merge(context.contentResolver.openInputStream(uri)!!.use { it.readBytes().decodeToString() })
+                onRestored()
+                count
             }.fold({ "Imported $it words" }, { "Import failed: ${it.message}" }),
         )
+    }
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            runCatching { context.contentResolver.takePersistableUriPermission(uri, flags) }
+            settings.updateBackupFolder(uri.toString())
+            scope.launch {
+                say(
+                    runCatching { saved.writeBackupToFolder(uri) }
+                        .fold({ "Auto-backup enabled" }, { "Auto-backup failed: ${it.message}" }),
+                )
+            }
+        }
     }
 
     var picking by remember { mutableStateOf(false) }
     var installing by remember { mutableStateOf(false) }
     val reminder = settings.reminderMinutes
+    val folderUri = settings.backupFolderUri
+    val folderName = remember(folderUri) { folderUri?.let { folderLabel(context, Uri.parse(it)) } }
 
     Column(
         Modifier
@@ -102,10 +128,25 @@ internal fun SettingsScreen(saved: SavedWords, learning: Learning, snackbar: Sna
         Text("${learning.learned.size} words marked as learned.")
 
         Text("Backup", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge)
-        Text("Save your rated words to a file, or merge a backup back in.")
+        Text(
+            if (folderName == null) "Save your rated words to a file, or merge a backup back in."
+            else "Auto-backing up to $folderName/$BACKUP_FILENAME on every change.",
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { export.launch("word-of-the-day-backup.json") }) { Text("Back up") }
+            OutlinedButton(onClick = { export.launch(BACKUP_FILENAME) }) { Text("Back up") }
             OutlinedButton(onClick = { import.launch(arrayOf("*/*")) }) { Text("Restore") }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = { pickFolder.launch(folderUri?.let(Uri::parse)) }) {
+                Text(if (folderName == null) "Auto-backup folder" else "Change folder")
+            }
+            if (folderUri != null) {
+                OutlinedButton(onClick = {
+                    val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    runCatching { context.contentResolver.releasePersistableUriPermission(Uri.parse(folderUri), flags) }
+                    settings.updateBackupFolder(null)
+                }) { Text("Turn off") }
+            }
         }
 
         Text("Pebble", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelLarge)
@@ -142,3 +183,17 @@ internal fun SettingsScreen(saved: SavedWords, learning: Learning, snackbar: Sna
         )
     }
 }
+
+private fun folderLabel(context: Context, treeUri: Uri): String = runCatching {
+    val docId = DocumentsContract.getTreeDocumentId(treeUri)
+    if (docId.startsWith("primary:") && docId.length > "primary:".length) {
+        return docId.removePrefix("primary:")
+    }
+    val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
+    context.contentResolver.query(
+        docUri,
+        arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+        null, null, null,
+    )?.use { if (it.moveToFirst()) it.getString(0) else null }
+        ?: docId.substringAfterLast(':', docId).ifEmpty { "Selected folder" }
+}.getOrDefault("Selected folder")

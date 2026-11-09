@@ -6,6 +6,8 @@ import android.Manifest
 import android.app.Activity
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -91,7 +93,9 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -136,12 +140,28 @@ fun AppTheme(content: @Composable () -> Unit) {
 
 // Many phones run apps at 60 Hz unless asked; pick the fastest mode at the current resolution.
 private fun ComponentActivity.requestHighestRefreshRate() {
-    if (Build.VERSION.SDK_INT < 30) return
-    val current = display?.mode ?: return
-    val fastest = display!!.supportedModes
+    val currentDisplay = if (Build.VERSION.SDK_INT >= 30) {
+        display
+    } else {
+        @Suppress("DEPRECATION")
+        windowManager.defaultDisplay
+    } ?: return
+    val current = currentDisplay.mode ?: return
+    val fastest = currentDisplay.supportedModes
         .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
         .maxByOrNull { it.refreshRate } ?: return
-    window.attributes = window.attributes.apply { preferredDisplayModeId = fastest.modeId }
+    // Copy first: window.attributes returns the internal LayoutParams, so mutating it in place hides the change.
+    window.attributes = WindowManager.LayoutParams().apply {
+        copyFrom(window.attributes)
+        preferredDisplayModeId = fastest.modeId
+        preferredRefreshRate = fastest.refreshRate
+    }
+    if (Build.VERSION.SDK_INT >= 34) {
+        window.decorView.requestedFrameRate = View.REQUESTED_FRAME_RATE_CATEGORY_HIGH
+    }
+    if (Build.VERSION.SDK_INT >= 35) {
+        window.setFrameRatePowerSavingsBalanced(false)
+    }
 }
 
 private sealed interface Load {
@@ -168,9 +188,14 @@ private fun App() {
     var load by remember { mutableStateOf<Load>(Load.Loading) }
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(attempt) {
+        // Ensure any rated words restored from a backup are also present in the local archive.
+        if (saved.items.isNotEmpty()) {
+            val ratedWords = saved.items.map { it.word }
+            withContext(Dispatchers.IO) { WordArchive.get(context).store(ratedWords) }
+        }
         // Show what the archive already holds straight away; the fetch only tops it up.
-        val shown = (load as? Load.Done)?.words ?: archivedWords(context).takeIf { it.isNotEmpty() }
-        load = if (shown != null) Load.Done(shown, refreshing = true) else Load.Loading
+        val shown = archivedWords(context).takeIf { it.isNotEmpty() } ?: (load as? Load.Done)?.words
+        load = if (shown != null) Load.Done(shown, refreshing = attempt > 0) else Load.Loading
         val fetched = runCatching { fetchAndArchive(context) }
         // Offline or feed down: the archive still has every word seen so far.
         val words = archivedWords(context)
@@ -231,12 +256,17 @@ private fun App() {
                                 },
                                 label = "tab",
                             ) { current ->
-                                val open = { word: Word -> detail = word }
-                                when (current) {
-                                    0 -> TodayScreen(load, saved, learning, streak, todayList, open) { attempt++ }
-                                    1 -> RatingScreen(saved, learning, snackbar, ratingList, open)
-                                    2 -> QuizScreen(saved, learning, (load as? Load.Done)?.words.orEmpty())
-                                    else -> SettingsScreen(saved, learning, snackbar)
+                                // Disable shared-element bounds while sliding between tabs so words on both
+                                // Today and Rating do not collide in SharedTransitionLayout's overlay.
+                                val activeSharedScope = if (current == tab && !transition.isRunning) sharedScope else null
+                                CompositionLocalProvider(LocalSharedScope provides activeSharedScope) {
+                                    val open = { word: Word -> detail = word }
+                                    when (current) {
+                                        0 -> TodayScreen(load, saved, learning, streak, todayList, open) { attempt++ }
+                                        1 -> RatingScreen(saved, learning, snackbar, ratingList, open)
+                                        2 -> QuizScreen(saved, learning, (load as? Load.Done)?.words.orEmpty())
+                                        else -> SettingsScreen(saved, learning, snackbar) { attempt++ }
+                                    }
                                 }
                             }
                         }
@@ -293,8 +323,9 @@ private fun TodayScreen(
                 Button(onClick = onRefresh, Modifier.padding(top = 12.dp)) { Text("Retry") }
             }
             is Load.Done -> PullToRefreshBox(isRefreshing = state.refreshing, onRefresh = onRefresh) {
+                val items = remember(state.words, saved.items) { state.words.map { it to saved.rating(it) } }
                 WordList(
-                    state.words.map { it to saved.rating(it) },
+                    items,
                     saved,
                     learning,
                     hero = true,

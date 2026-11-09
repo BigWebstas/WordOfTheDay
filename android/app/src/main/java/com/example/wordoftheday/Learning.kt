@@ -1,6 +1,7 @@
 package com.example.wordoftheday
 
 import android.content.Context
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -9,6 +10,7 @@ import kotlin.random.Random
 data class Question(val answer: Word, val options: List<Word>)
 
 /** Which words the user has learned, and how often each one was missed in the quiz. */
+@Stable
 class Learning private constructor(context: Context) {
     private val prefs = context.getSharedPreferences("learning", Context.MODE_PRIVATE)
 

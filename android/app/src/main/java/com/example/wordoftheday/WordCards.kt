@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.VectorConverter
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -55,6 +56,8 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -81,6 +84,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.Locale
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
@@ -92,6 +96,7 @@ internal val LocalVisibilityScope = compositionLocalOf<AnimatedVisibilityScope?>
 internal val LocalSpeak = staticCompositionLocalOf<(String) -> Unit> { {} }
 
 /** Where a list was scrolled to and which cards already slid in, kept while a detail screen is open. */
+@Stable
 internal class ListMemory(val state: LazyListState, val entered: MutableSet<String>)
 
 @Composable
@@ -105,11 +110,13 @@ internal fun rememberListMemory(): ListMemory {
 private fun Modifier.shared(key: String): Modifier {
     val sharedScope = LocalSharedScope.current ?: return this
     val visibility = LocalVisibilityScope.current ?: return this
+    val shape = CardDefaults.shape
     return with(sharedScope) {
+        val clip = remember(shape) { OverlayClip(shape) }
         this@shared.sharedBounds(
             rememberSharedContentState(key),
             visibility,
-            clipInOverlayDuringTransition = OverlayClip(CardDefaults.shape),
+            clipInOverlayDuringTransition = clip,
         )
     }
 }
@@ -119,7 +126,7 @@ private fun Modifier.shared(key: String): Modifier {
 internal fun rememberBuzz(): (HapticFeedbackType) -> Unit {
     val haptic = LocalHapticFeedback.current
     val settings = AppSettings.get(LocalContext.current)
-    return { type -> if (settings.haptics) haptic.performHapticFeedback(type) }
+    return remember(haptic, settings) { { type -> if (settings.haptics) haptic.performHapticFeedback(type) } }
 }
 
 /** Returns a function that reads text aloud; the engine lives as long as the caller. */
@@ -141,12 +148,19 @@ internal fun rememberSpeaker(): (String) -> Unit {
 @Composable
 private fun cardContainer(rating: Int, hero: Boolean): Color {
     val colors = MaterialTheme.colorScheme
-    // Higher ratings warm the card towards gold.
-    val container by animateColorAsState(
-        lerp(if (hero) colors.primaryContainer else colors.surfaceContainerHighest, Color(0xFFFFB300), rating * 0.04f),
-        label = "cardTint",
-    )
-    return container
+    fun tint(r: Int) =
+        lerp(if (hero) colors.primaryContainer else colors.surfaceContainerHighest, Color(0xFFFFB300), r * 0.04f)
+    // Higher ratings warm the card towards gold; only allocate an animation when a card's rating changes.
+    val state = remember { intArrayOf(rating, 0) }
+    if (rating != state[0]) state[1] = 1
+    if (state[1] == 0) return tint(rating)
+    val anim = remember { Animatable(tint(state[0]), Color.VectorConverter(colors.primaryContainer.colorSpace)) }
+    val target = tint(rating)
+    LaunchedEffect(target) {
+        state[0] = rating
+        anim.animateTo(target, spring())
+    }
+    return anim.value
 }
 
 @Composable
@@ -168,8 +182,12 @@ internal fun WordList(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (header != null) item(key = "header") { header() }
-        itemsIndexed(words, key = { _, pair -> pair.first.key }) { index, (word, rating) ->
+        if (header != null) item(key = "header", contentType = "header") { header() }
+        itemsIndexed(
+            words,
+            key = { _, pair -> pair.first.key },
+            contentType = { index, _ -> hero && index == 0 },
+        ) { index, (word, rating) ->
             val card = @Composable {
                 WordCard(
                     word, rating,
@@ -183,8 +201,14 @@ internal fun WordList(
                     onSpeak = { speak(word.word) },
                 )
             }
-            // Cards slide in once; scrolling back to them should not replay it.
-            Box(Modifier.animateItem().slideIn(index, memory.entered.add(word.key))) {
+            // Only cascade the initial screenful on the Today tab; switching tabs or scrolling shows cards in place.
+            val atTop = hero &&
+                !memory.state.isScrollInProgress &&
+                memory.state.firstVisibleItemIndex == 0 &&
+                memory.state.firstVisibleItemScrollOffset == 0
+            val play = memory.entered.add(word.key) && atTop && index < 6
+            val itemModifier = (if (onDismiss != null) Modifier.animateItem() else Modifier).slideIn(index, play)
+            Box(itemModifier) {
                 if (onDismiss == null) card() else SwipeAway({ onDismiss(word, rating) }, card)
             }
         }
@@ -301,9 +325,19 @@ internal fun DetailScreen(word: Word, saved: SavedWords, learning: Learning, onB
 @Composable
 private fun SwipeAway(onDismiss: () -> Unit, content: @Composable () -> Unit) {
     val current by rememberUpdatedState(onDismiss)
-    val state = rememberSwipeToDismissBoxState(confirmValueChange = {
-        if (it == SwipeToDismissBoxValue.Settled) false else { current(); true }
-    })
+    var width = remember { 0f }
+    lateinit var state: androidx.compose.material3.SwipeToDismissBoxState
+    state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            // Require a deliberate drag across at least 40% of the card so a diagonal scroll flick never deletes.
+            val farEnough = width > 0f && abs(runCatching { state.requireOffset() }.getOrDefault(0f)) >= width * 0.4f
+            if (value == SwipeToDismissBoxValue.Settled || !farEnough) false else { current(); true }
+        },
+        positionalThreshold = { distance ->
+            width = distance
+            distance * 0.5f
+        },
+    )
     SwipeToDismissBox(
         state,
         backgroundContent = {
@@ -325,44 +359,57 @@ private fun SwipeAway(onDismiss: () -> Unit, content: @Composable () -> Unit) {
 
 @Composable
 private fun Stars(rating: Int, onRate: (Int) -> Unit) {
-    // A burst of confetti each time the rating reaches five.
-    var burst by remember { mutableIntStateOf(0) }
-    val previous = remember { intArrayOf(rating) }
-    LaunchedEffect(rating) {
-        if (rating == 5 && previous[0] != 5) burst++
-        previous[0] = rating
+    // Only spin up animations and confetti on cards whose rating actually changes while on screen.
+    val state = remember { intArrayOf(rating, 0, 0) } // [previousRating, active, burst]
+    if (rating != state[0]) {
+        state[1] = 1
+        if (rating == 5 && state[0] != 5) state[2]++
     }
+    val active = state[1] != 0
+    val previousRating = state[0]
+    val burst = state[2]
+    if (active) SideEffect { state[0] = rating }
 
     Box {
-        Confetti(burst, Modifier.matchParentSize())
+        if (burst > 0) Confetti(burst, Modifier.matchParentSize())
         Row {
             for (star in 1..5) {
                 val filled = star <= rating
-                val color by animateColorAsState(
-                    if (filled) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant,
-                    label = "star",
-                )
-                // Newly filled stars pop, staggered left to right; stars already filled on first draw stay still.
-                val pop = remember { Animatable(1f) }
-                val wasFilled = remember { booleanArrayOf(filled) }
-                LaunchedEffect(filled) {
-                    if (filled && !wasFilled[0]) {
-                        delay(star * 30L)
-                        pop.snapTo(0.4f)
-                        pop.animateTo(1f, spring(Spring.DampingRatioHighBouncy, Spring.StiffnessMedium))
+                val targetColor = if (filled) Color(0xFFFFB300) else MaterialTheme.colorScheme.onSurfaceVariant
+                if (!active) {
+                    Text(
+                        if (filled) "★" else "☆",
+                        Modifier
+                            .semantics { contentDescription = "Rate $star stars" }
+                            .clickable { onRate(star) }
+                            .padding(end = 8.dp, top = 4.dp, bottom = 4.dp),
+                        color = targetColor,
+                        fontSize = 28.sp,
+                    )
+                } else {
+                    val color by animateColorAsState(targetColor, label = "star")
+                    // Newly filled stars pop, staggered left to right; stars already filled stay still.
+                    val pop = remember { Animatable(1f) }
+                    val wasFilled = remember { booleanArrayOf(star <= previousRating) }
+                    LaunchedEffect(filled) {
+                        if (filled && !wasFilled[0]) {
+                            delay(star * 30L)
+                            pop.snapTo(0.4f)
+                            pop.animateTo(1f, spring(Spring.DampingRatioHighBouncy, Spring.StiffnessMedium))
+                        }
+                        wasFilled[0] = filled
                     }
-                    wasFilled[0] = filled
+                    Text(
+                        if (filled) "★" else "☆",
+                        Modifier
+                            .semantics { contentDescription = "Rate $star stars" }
+                            .clickable { onRate(star) }
+                            .padding(end = 8.dp, top = 4.dp, bottom = 4.dp)
+                            .graphicsLayer { scaleX = pop.value; scaleY = pop.value },
+                        color = color,
+                        fontSize = 28.sp,
+                    )
                 }
-                Text(
-                    if (filled) "★" else "☆",
-                    Modifier
-                        .semantics { contentDescription = "Rate $star stars" }
-                        .clickable { onRate(star) }
-                        .padding(end = 8.dp, top = 4.dp, bottom = 4.dp)
-                        .graphicsLayer { scaleX = pop.value; scaleY = pop.value },
-                    color = color,
-                    fontSize = 28.sp,
-                )
             }
         }
     }
@@ -409,14 +456,14 @@ private fun Confetti(trigger: Int, modifier: Modifier) {
 /** Fades and slides a card up from below, staggered by position; [play] false skips it. */
 @Composable
 private fun Modifier.slideIn(index: Int, play: Boolean): Modifier {
-    val progress = remember { Animatable(if (play) 0f else 1f) }
+    val shouldPlay = remember { play }
+    if (!shouldPlay) return this
+    val progress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        if (play) {
-            delay(index.coerceAtMost(8) * 60L)
-            progress.animateTo(1f, tween(450, easing = FastOutSlowInEasing))
-        }
+        delay(index.coerceAtMost(5) * 60L)
+        progress.animateTo(1f, tween(450, easing = FastOutSlowInEasing))
     }
-    return graphicsLayer {
+    return if (progress.value >= 1f) this else graphicsLayer {
         alpha = progress.value
         translationY = (1f - progress.value) * 48.dp.toPx()
     }

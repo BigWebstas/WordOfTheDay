@@ -4,6 +4,9 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -25,20 +28,28 @@ class WordArchive private constructor(context: Context) :
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
 
-    /** Adds new words and refreshes the text of known ones; [words] is newest first, as the feed sends it. */
+    /**
+     * Adds new words and refreshes the text of known ones, keeping rows ordered from oldest to newest
+     * by publication date so restored backups and feed updates interleave in chronological order.
+     */
     fun store(words: List<Word>) {
+        if (words.isEmpty()) return
         val db = writableDatabase
+        val existing = all()
+        val incoming = words.associateBy { it.key }
+        val existingKeys = existing.mapTo( HashSet() ) { it.key }
+        val merged = (words.filterNot { it.key in existingKeys } + existing.map { incoming[it.key] ?: it })
+            .sortedByDescending { parseEpochDay(it.date) }
         db.transaction {
-            for (w in words.asReversed()) {
+            delete("words", null, null)
+            for (w in merged.asReversed()) {
                 val values = ContentValues().apply {
                     put("key", w.key); put("word", w.word); put("date", w.date)
                     put("shortDefinition", w.shortDefinition); put("pronunciation", w.pronunciation)
                     put("meaning", w.meaning); put("context", w.context)
                     put("example", w.example); put("didYouKnow", w.didYouKnow)
                 }
-                if (insertWithOnConflict("words", null, values, SQLiteDatabase.CONFLICT_IGNORE) == -1L) {
-                    update("words", values, "key = ?", arrayOf(w.key))
-                }
+                insertWithOnConflict("words", null, values, SQLiteDatabase.CONFLICT_REPLACE)
             }
         }
     }
@@ -76,6 +87,12 @@ class WordArchive private constructor(context: Context) :
     }
 
     companion object {
+        private val dateFormat = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.US)
+
+        private fun parseEpochDay(date: String): Long = runCatching {
+            LocalDate.parse(date.substringAfter(", ").trim(), dateFormat).toEpochDay()
+        }.getOrDefault(Long.MIN_VALUE)
+
         @Volatile
         private var instance: WordArchive? = null
 
